@@ -23,10 +23,11 @@ OPT_FILE_3  = os.path.join(os.path.dirname(__file__), "data", "qqq_0dte_options_
 OPT_FILE_4  = os.path.join(os.path.dirname(__file__), "..", "3-qqq末日期权日K-上下4股价的期权合同-前一天末日期权的收盘价", "data", "qqq_0dte_options_offset4.xlsx")
 OUTPUT_HTML = os.path.join(os.path.dirname(__file__), "data", "qqq_0dte_strategy_report.html")
 
-TRIGGER_PCT  = 1.5   # 触发阈值 ±1.5%
+UPPER_TRIGGER_PCT = 2.0    # 上涨触发阈值 +2.0%（最优配置）
+LOWER_TRIGGER_PCT = 1.25   # 下跌触发阈值 -1.25%（最优配置）
 COMMISSION   = 1.7   # 每张合约手续费（美元），买入+卖出共2次×2腿=4次
 MONITOR_START = "09:30"
-MONITOR_END   = "12:00"
+MONITOR_END   = "10:30"
 
 
 def load_data(opt_file):
@@ -96,7 +97,7 @@ def run_backtest(summary, call_1m, put_1m, qqq_1m, qqq_2m, qqq_5m):
             t = mrow["time_only"]
             price = float(mrow["收盘价"])
             pct = (price - qqq_t2_close) / qqq_t2_close * 100
-            if abs(pct) >= TRIGGER_PCT:
+            if pct >= UPPER_TRIGGER_PCT or pct <= -LOWER_TRIGGER_PCT:
                 trigger_time = t
                 trigger_pct  = round(pct, 2)
                 trigger_dir  = "涨" if pct > 0 else "跌"
@@ -332,11 +333,11 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
   </div>
   <label>上涨触发</label>
   <span style="color:#3fb950;font-weight:bold">+</span>
-  <input type="number" id="upperPct" value="{TRIGGER_PCT}" min="0.1" max="20" step="0.1">
+  <input type="number" id="upperPct" value="{UPPER_TRIGGER_PCT}" min="0.1" max="20" step="0.1">
   <span style="color:#8b949e;font-size:12px">%</span>
   <label style="margin-left:10px">下跌触发</label>
   <span style="color:#f85149;font-weight:bold">−</span>
-  <input type="number" id="lowerPct" value="{TRIGGER_PCT}" min="0.1" max="20" step="0.1">
+  <input type="number" id="lowerPct" value="{LOWER_TRIGGER_PCT}" min="0.1" max="20" step="0.1">
   <span style="color:#8b949e;font-size:12px">%</span>
   <label style="margin-left:10px">手续费</label>
   <input type="number" id="commission" value="{COMMISSION}" min="0" max="50" step="0.1">
@@ -344,7 +345,7 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
   <label style="margin-left:10px">平仓时间</label>
   <input type="time" id="closeTime" value="{MONITOR_END}" min="09:35" max="15:00">
   <button class="ctrl-btn" onclick="applyThreshold()">▶ 重新计算</button>
-  <span class="ctrl-hint" id="ctrlHint">当前：上涨 +{TRIGGER_PCT}% / 下跌 −{TRIGGER_PCT}% / 手续费 ${COMMISSION}/张 / 平仓 {MONITOR_END}</span>
+  <span class="ctrl-hint" id="ctrlHint">当前：上涨 +{UPPER_TRIGGER_PCT}% / 下跌 −{LOWER_TRIGGER_PCT}% / 手续费 ${COMMISSION}/张 / 平仓 {MONITOR_END}</span>
 </div>
 <div class="stats-row">
   <div class="stat-card"><div class="label">交易天数</div><div class="value blue" id="s-days">{total_trades}</div></div>
@@ -423,16 +424,17 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
         cum4.append(round(s, 4))
     html += f"const CUM_PNL_3  = {json.dumps(cum3)};\n"
     html += f"const CUM_PNL_4  = {json.dumps(cum4)};\n"
-    html += f"const TRIGGER_PCT  = {TRIGGER_PCT};\n"
+    html += f"const UPPER_TRIGGER_PCT = {UPPER_TRIGGER_PCT};\n"
+    html += f"const LOWER_TRIGGER_PCT = {LOWER_TRIGGER_PCT};\n"
     html += f"const COMMISSION   = {COMMISSION};\n"
 
     html += r"""
 const MONITOR_START = '09:30';
-const MONITOR_END   = '12:00';
+const MONITOR_END   = '10:30';
 
 // ─── 动态重算引擎 ───
-let _upperPct   = TRIGGER_PCT;
-let _lowerPct   = TRIGGER_PCT;
+let _upperPct   = UPPER_TRIGGER_PCT;
+let _lowerPct   = LOWER_TRIGGER_PCT;
 let _commission = COMMISSION;
 let _monitorEnd = MONITOR_END;  // 可调平仓时间
 let _strike     = 3;  // 当前行权价偏移：3 或 4

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-参数扫描：枚举 upper_pct / lower_pct / close_time 三轴，分别对 ceil/floor / ±1 数据做回测
+参数扫描：枚举 upper_pct / lower_pct / close_time 三轴，分别对 ±0.5 / ±1 数据做回测
 输出：累计盈亏最高的 Top 20 组合
 """
 import os
@@ -20,7 +20,7 @@ UPPER_PCTS   = [round(x * 0.25, 2) for x in range(2, 21)]   # 0.5 ~ 5.0，步长
 LOWER_PCTS   = [round(x * 0.25, 2) for x in range(2, 21)]
 CLOSE_TIMES  = ["10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
                 "13:00", "13:30", "14:00", "14:30", "15:00"]
-STRIKE_FILES = [("ceil/floor", OPT_FILE_05), ("±1", OPT_FILE_1)]
+STRIKE_FILES = [("±0.5", OPT_FILE_05), ("±1", OPT_FILE_1)]
 
 TOP_N = 20
 
@@ -167,8 +167,8 @@ def main():
     print(top.to_string())
 
     print(f"\n{'='*70}")
-    print("  [ceil/floor 专项 Top 10]")
-    print(df_sorted[df_sorted["行权价"] == "ceil/floor"].head(10).reset_index(drop=True).to_string())
+    print("  [±0.5 专项 Top 10]")
+    print(df_sorted[df_sorted["行权价"] == "±0.5"].head(10).reset_index(drop=True).to_string())
     print(f"\n  [±1 专项 Top 10]")
     print(df_sorted[df_sorted["行权价"] == "±1"].head(10).reset_index(drop=True).to_string())
 

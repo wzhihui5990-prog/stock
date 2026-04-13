@@ -221,8 +221,8 @@ def build_daily_charts(results, call_1m, put_1m, iwm_1m, iwm_2m, iwm_5m):
 
 
 def generate_html(results_05, daily_05, results_1, daily_1):
-    results = results_05  # 初始显示 ±0.5(ceil/floor)
-    daily_data = daily_05
+    results = results_1  # 初始显示 ±1（最优配置）
+    daily_data = daily_1
     total_trades = len(results)
     wins = sum(1 for r in results if r["盈亏"] > 0)
     losses = sum(1 for r in results if r["盈亏"] <= 0)
@@ -324,13 +324,13 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
     <div class="item"><span class="tag yellow">数据降级</span>优先使用 1min K 线定位触发时间；无 1min 则降级 2min → 5min，粒度越粗触发时间误差越大</div>
     <div class="item"><span class="tag blue">盈亏计算</span>（Call卖出价 + Put卖出价）−（Call买入价 + Put买入价）− 手续费，单位为每张合约权利金（×100 = 实际美元）</div>
     <div class="item"><span class="tag red">手续费</span>买入 Call + Put（2张）+ 卖出 Call + Put（2张）= 共 4 张次，默认 ${COMMISSION}/张，总手续费 ${round(COMMISSION*4,2)}（可在上方调整）</div>
-    <div class="item"><span class="tag green">合约选择</span>ceil/floor模式：Call = ceil(T-1收盘)，Put = floor(T-1收盘)；±1模式：Call = round(T-1收盘)+1，Put = round(T-1收盘)-1</div>
+    <div class="item"><span class="tag green">合约选择</span>±0.5模式：Call = ceil(T-1收盘)，Put = floor(T-1收盘)（行权价与现价之差 ≤ $0.5）；±1模式：Call = round(T-1收盘)+1，Put = round(T-1收盘)-1</div>
   </div>
 </div>
 <div class="ctrl-bar">
   <div class="strike-switch">
-    <button id="btn-strike05" class="active" onclick="switchStrike(0.5)">ceil/floor 行权价</button>
-    <button id="btn-strike1" onclick="switchStrike(1)">±1 行权价</button>
+    <button id="btn-strike05" onclick="switchStrike(0.5)">±0.5 行权价</button>
+    <button id="btn-strike1" class="active" onclick="switchStrike(1)">±1 行权价</button>
   </div>
   <label>上涨触发</label>
   <span style="color:#3fb950;font-weight:bold">+</span>
@@ -438,13 +438,13 @@ let _upperPct   = UPPER_TRIGGER_PCT;
 let _lowerPct   = LOWER_TRIGGER_PCT;
 let _commission = COMMISSION;
 let _monitorEnd = MONITOR_END;
-let _strike     = 0.5;  // 当前行权价偏移：0.5(ceil/floor) 或 1
+let _strike     = 1;  // 当前行权价偏移：0.5(±0.5) 或 1（默认±1，最优配置）
 // 当前数据源（随行权价切换）
-let _baseResults = RESULTS_05.slice();
-let _baseDaily   = DAILY_05;
+let _baseResults = RESULTS_1.slice();
+let _baseDaily   = DAILY_1;
 // 重算后有效数据（供 selectDay/累计图使用）
-let _activeResults = RESULTS_05.slice();
-let _activeCumPnl  = CUM_PNL_05.slice();
+let _activeResults = RESULTS_1.slice();
+let _activeCumPnl  = CUM_PNL_1.slice();
 
 function switchStrike(n) {
   _strike = n;
@@ -1055,9 +1055,9 @@ def main():
     summary_05, call_05_1m, put_05_1m, iwm_1m, iwm_2m, iwm_5m, iwm_daily = load_data(OPT_FILE_05)
     summary_1,  call_1_1m,  put_1_1m,  _,      _,      _,      _          = load_data(OPT_FILE_1)
 
-    print("运行策略回测（ceil/floor）...")
+    print("运行策略回测（±0.5）...")
     results_05 = run_backtest(summary_05, call_05_1m, put_05_1m, iwm_1m, iwm_2m, iwm_5m)
-    print(f"  ceil/floor 共 {len(results_05)} 个交易日")
+    print(f"  ±0.5 共 {len(results_05)} 个交易日")
     for g, cnt in pd.Series([r['数据粒度'] for r in results_05]).value_counts().items():
         print(f"    {g}: {cnt} 天")
 
@@ -1081,7 +1081,7 @@ def main():
     total_pnl_1  = sum(r["盈亏"] for r in results_1)
     wins_05 = sum(1 for r in results_05 if r["盈亏"] > 0)
     wins_1  = sum(1 for r in results_1  if r["盈亏"] > 0)
-    print(f"\n── ceil/floor 策略汇总 ──")
+    print(f"\n── ±0.5 策略汇总 ──")
     print(f"  胜/负: {wins_05}/{len(results_05)-wins_05}  胜率: {round(wins_05/len(results_05)*100,1)}%  累计盈亏: ${round(total_pnl_05*100,2)}")
     print(f"── ±1 策略汇总 ──")
     print(f"  胜/负: {wins_1}/{len(results_1)-wins_1}  胜率: {round(wins_1/len(results_1)*100,1)}%  累计盈亏: ${round(total_pnl_1*100,2)}")

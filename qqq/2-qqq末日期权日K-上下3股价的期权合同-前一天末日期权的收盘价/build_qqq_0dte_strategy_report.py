@@ -21,6 +21,7 @@ import numpy as np
 QQQ_FILE    = os.path.join(os.path.dirname(__file__), "..", "1-qqq日K", "data", "qqq_market_data.xlsx")
 OPT_FILE_3  = os.path.join(os.path.dirname(__file__), "data", "qqq_0dte_options_offset3.xlsx")
 OPT_FILE_4  = os.path.join(os.path.dirname(__file__), "..", "3-qqq末日期权日K-上下4股价的期权合同-前一天末日期权的收盘价", "data", "qqq_0dte_options_offset4.xlsx")
+VIX_FILE    = os.path.join(os.path.dirname(__file__), "..", "..", "VIX", "data", "vix_data.xlsx")
 OUTPUT_HTML = os.path.join(os.path.dirname(__file__), "data", "qqq_0dte_strategy_report.html")
 
 UPPER_TRIGGER_PCT = 2.0    # 上涨触发阈值 +2.0%（最优配置）
@@ -154,13 +155,15 @@ def run_backtest(summary, call_1m, put_1m, qqq_1m, qqq_2m, qqq_5m):
             "Call合约": row["Call合约"],
             "Put合约": row["Put合约"],
             "数据粒度": granularity,
+            "VIX": None,  # 后续由 main() 注入
+            "VIX_卖出": None,  # 后续由 main() 注入
         })
 
     return results
 
 
-def build_daily_charts(results, call_1m, put_1m, qqq_1m, qqq_2m, qqq_5m):
-    """为每个交易日构建 QQQ / Call / Put 的数据 + 标记点"""
+def build_daily_charts(results, call_1m, put_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map=None):
+    """为每个交易日构建 QQQ / Call / Put / VIX 的数据 + 标记点"""
     daily_data = []
 
     for r in results:
@@ -208,18 +211,24 @@ def build_daily_charts(results, call_1m, put_1m, qqq_1m, qqq_2m, qqq_5m):
                 "v": int(row["成交量"]),
             })
 
+        # VIX 5min
+        vix_arr = []
+        if vix_5min_map and t1 in vix_5min_map:
+            vix_arr = vix_5min_map[t1]
+
         daily_data.append({
             "date": t1,
             "granularity": r["数据粒度"],
             "qqq": qqq_arr,
             "call": call_arr,
             "put": put_arr,
+            "vix": vix_arr,
         })
 
     return daily_data
 
 
-def generate_html(results3, daily3, results4, daily4):
+def generate_html(results3, daily3, results4, daily4, vix_daily_data=None):
     results = results3  # 初始显示 ±3
     daily_data = daily3
     total_trades = len(results)
@@ -361,12 +370,23 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
   <canvas id="cumChart"></canvas>
 </div>
 <div class="section">
+  <h2>VIX 日K线</h2>
+  <canvas id="vixDailyCanvas" style="width:100%;height:280px;background:#161b22;border:1px solid #30363d;border-radius:8px;display:block"></canvas>
+</div>
+<div class="section">
+  <h2>VIX 与策略盈亏相关性</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div><canvas id="vixScatter" style="width:100%;height:280px;background:#161b22;border:1px solid #30363d;border-radius:8px"></canvas></div>
+    <div><canvas id="vixBarChart" style="width:100%;height:280px;background:#161b22;border:1px solid #30363d;border-radius:8px"></canvas></div>
+  </div>
+</div>
+<div class="section">
   <h2>每日交易明细 <span style="font-size:12px;color:#8b949e">（点击行展开日内K线，再次点击收起）</span></h2>
   <div class="table-wrap">
   <table id="tradeTable">
     <thead>
       <tr>
-        <th>到期日</th><th>粒度</th><th>T-1收盘</th><th>T开盘</th><th>QQQ涨跌%(vs T-1收)</th>
+        <th>到期日</th><th>VIX买</th><th>VIX卖</th><th>粒度</th><th>T-1收盘</th><th>T开盘</th><th>QQQ涨跌%(vs T-1收)</th>
         <th>Call成本</th><th>Put成本</th><th>总成本</th>
         <th>触发</th><th>触发时间</th><th>触发涨跌%</th>
         <th>Call卖出</th><th>Put卖出</th><th>总卖出</th>
@@ -384,8 +404,16 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
         pnl_dollar = round(r["盈亏"] * 100, 2)
         gran_color = "" if r["数据粒度"] == "1min" else ("color:#d29922" if r["数据粒度"] == "2min" else "color:#f85149")
 
+        vix_buy = r.get("VIX")
+        vix_sell_val = r.get("VIX_卖出")
+        vix_buy_str = f'{vix_buy:.1f}' if vix_buy is not None else '-'
+        vix_sell_str = f'{vix_sell_val:.1f}' if vix_sell_val is not None else '-'
+        vix_buy_color = 'color:#f85149' if vix_buy and vix_buy >= 25 else ('color:#d29922' if vix_buy and vix_buy >= 20 else 'color:#3fb950')
+        vix_sell_color = 'color:#f85149' if vix_sell_val and vix_sell_val >= 25 else ('color:#d29922' if vix_sell_val and vix_sell_val >= 20 else 'color:#3fb950')
         html += f"""      <tr class="data-row" data-idx="{i}" onclick="selectDay({i})">
         <td style="text-align:left">{r["到期日"]}</td>
+        <td style="{vix_buy_color};font-weight:bold">{vix_buy_str}</td>
+        <td style="{vix_sell_color};font-weight:bold">{vix_sell_str}</td>
         <td style="{gran_color}">{r["数据粒度"]}</td>
         <td>${r["QQQ_T2收盘"]}</td>
         <td>${r["QQQ开盘"]}</td>
@@ -424,6 +452,7 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
         cum4.append(round(s, 4))
     html += f"const CUM_PNL_3  = {json.dumps(cum3)};\n"
     html += f"const CUM_PNL_4  = {json.dumps(cum4)};\n"
+    html += f"const VIX_DAILY_DATA = {json.dumps(vix_daily_data or [], ensure_ascii=False)};\n"
     html += f"const UPPER_TRIGGER_PCT = {UPPER_TRIGGER_PCT};\n"
     html += f"const LOWER_TRIGGER_PCT = {LOWER_TRIGGER_PCT};\n"
     html += f"const COMMISSION   = {COMMISSION};\n"
@@ -552,6 +581,10 @@ function applyThreshold() {
   _cumHoverIdx = -1;
   _renderCumChartWith(newResults, newCum);
 
+  // 更新 VIX 图表
+  drawVixDailyChart();
+  drawVixCharts();
+
   // 如果有展开行，关闭它
   if (currentIdx >= 0) {
     const old = document.getElementById('detailRow');
@@ -576,8 +609,16 @@ function _rebuildTableRows(results) {
     tr.className = 'data-row';
     tr.dataset.idx = i;
     tr.onclick = () => selectDay(i);
+    const vBuy = r['VIX'];
+    const vSell = r['VIX_卖出'];
+    const vBuyS = vBuy != null ? vBuy.toFixed(1) : '-';
+    const vSellS = vSell != null ? vSell.toFixed(1) : '-';
+    const vBuyC = vBuy >= 25 ? 'color:#f85149' : vBuy >= 20 ? 'color:#d29922' : 'color:#3fb950';
+    const vSellC = vSell >= 25 ? 'color:#f85149' : vSell >= 20 ? 'color:#d29922' : 'color:#3fb950';
     tr.innerHTML =
       '<td style="text-align:left">' + r['到期日'] + '</td>' +
+      '<td style="' + vBuyC + ';font-weight:bold">' + vBuyS + '</td>' +
+      '<td style="' + vSellC + ';font-weight:bold">' + vSellS + '</td>' +
       '<td style="' + gc + '">' + r['数据粒度'] + '</td>' +
       '<td>$' + r['QQQ_T2收盘'] + '</td>' +
       '<td>$' + r['QQQ开盘'] + '</td>' +
@@ -957,12 +998,14 @@ function selectDay(idx) {
     : '12:00 未触发 → 止损';
   const callPnl = ((r["Call卖出"]-r["Call成本"])*100).toFixed(2);
   const putPnl  = ((r["Put卖出"] -r["Put成本"] )*100).toFixed(2);
+  const vixBuy  = r['VIX'] != null ? r['VIX'].toFixed(1) : '-';
+  const vixSell = r['VIX_卖出'] != null ? r['VIX_卖出'].toFixed(1) : '-';
 
   const detailTr = document.createElement('tr');
   detailTr.id = 'detailRow';
   detailTr.className = 'detail-tr';
   detailTr.innerHTML = `
-    <td colspan="17">
+    <td colspan="19">
       <div class="detail-inner">
         <div class="detail-header">
           <span style="font-size:15px;font-weight:bold;color:#58a6ff">${r["到期日"]} [${d.granularity}]</span>
@@ -970,6 +1013,7 @@ function selectDay(idx) {
           <span style="color:#c9d1d9">${trigText}</span>
           <span style="color:#8b949e">Call: 买$${r["Call成本"]}→卖$${r["Call卖出"]} (<span style="color:${parseFloat(callPnl)>=0?'#3fb950':'#f85149'}">$${callPnl}</span>)</span>
           <span style="color:#8b949e">Put:  买$${r["Put成本"]}→卖$${r["Put卖出"]} (<span style="color:${parseFloat(putPnl)>=0?'#3fb950':'#f85149'}">$${putPnl}</span>)</span>
+          <span style="color:#d29922;font-weight:bold">VIX: ${vixBuy}→${vixSell}</span>
         </div>
         <div class="legend">
           <span><span class="dot" style="background:#58a6ff"></span>买入</span>
@@ -989,6 +1033,12 @@ function selectDay(idx) {
           <div class="chart-box">
             <div class="chart-box-title">Put 期权 ${r["Put合约"].slice(-13)}</div>
             <canvas id="putCanvas" style="width:100%;height:340px;display:block;"></canvas>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="chart-box">
+            <div class="chart-box-title">VIX 5min — 买入VIX:${vixBuy} / 卖出VIX:${vixSell}</div>
+            <canvas id="vixIntraCanvas" style="width:100%;height:200px;display:block;"></canvas>
           </div>
         </div>
       </div>
@@ -1027,13 +1077,140 @@ function selectDay(idx) {
        ['卖出','$'+r["Put卖出"],'#f0883e'],
        ['盈亏','$'+putPnl, parseFloat(putPnl)>=0?'#3fb950':'#f85149']]);
 
+    if (d.vix && d.vix.length) {
+      drawCandleChart('vixIntraCanvas', d.vix,
+        [{time: sellTime, color:'#f0883e', label:'卖出'}],
+        null,
+        [['VIX买(T-1)', vixBuy, '#58a6ff'],
+         ['VIX卖', vixSell, '#f0883e']]);
+    }
+
     detailTr.scrollIntoView({behavior:'smooth', block:'nearest'});
   });
 }
 
-window.addEventListener('load', drawCumChart);
+// ─── VIX 日K线图 ───
+function drawVixDailyChart() {
+  if (!VIX_DAILY_DATA || !VIX_DAILY_DATA.length) return;
+  const markers = [];
+  for (const r of _activeResults) {
+    const pnl = r['盈亏'] * 100;
+    markers.push({
+      time: r['到期日'],
+      color: pnl >= 0 ? '#3fb950' : '#f85149',
+      label: (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(0)
+    });
+  }
+  drawCandleChart('vixDailyCanvas', VIX_DAILY_DATA, markers, null,
+    [['VIX 日K', '', '#d29922']], null);
+}
+
+// ─── VIX 散点 + 分段柱状图 ───
+function drawVixCharts() {
+  drawVixScatter();
+  drawVixBar();
+}
+function drawVixScatter() {
+  const canvas = document.getElementById('vixScatter');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width) return;
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t:30, r:20, b:35, l:55};
+  const pts = _activeResults.filter(r => r['VIX'] != null).map(r => ({vix: r['VIX'], pnl: r['盈亏']*100, trig: r['触发']}));
+  if (!pts.length) { ctx.fillStyle='#8b949e'; ctx.font='13px sans-serif'; ctx.textAlign='center'; ctx.fillText('无 VIX 数据', W/2, H/2); return; }
+  const minV = Math.min(...pts.map(p=>p.vix))-1, maxV = Math.max(...pts.map(p=>p.vix))+1;
+  const minP = Math.min(...pts.map(p=>p.pnl))-20, maxP = Math.max(...pts.map(p=>p.pnl))+20;
+  const toX = v => pad.l + (v-minV)/(maxV-minV)*(W-pad.l-pad.r);
+  const toY = v => pad.t + (maxP-v)/(maxP-minP)*(H-pad.t-pad.b);
+  // grid
+  ctx.strokeStyle='#21262d'; ctx.lineWidth=0.5; ctx.fillStyle='#8b949e'; ctx.font='10px sans-serif';
+  ctx.textAlign='right';
+  for (let i=0;i<=4;i++) { const v=minP+(maxP-minP)*i/4, y=toY(v); ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke(); ctx.fillText('$'+v.toFixed(0),pad.l-4,y+3); }
+  ctx.textAlign='center';
+  for (let i=0;i<=5;i++) { const v=minV+(maxV-minV)*i/5, x=toX(v); ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,H-pad.b);ctx.stroke(); ctx.fillText(v.toFixed(1),x,H-10); }
+  // zero line
+  const y0=toY(0); ctx.setLineDash([4,4]);ctx.strokeStyle='#58a6ff';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pad.l,y0);ctx.lineTo(W-pad.r,y0);ctx.stroke();ctx.setLineDash([]);
+  // points
+  for (const p of pts) { const x=toX(p.vix),y=toY(p.pnl); ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2); ctx.fillStyle=p.pnl>=0?'#3fb950':'#f85149'; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.3)';ctx.lineWidth=1;ctx.stroke(); }
+  // labels
+  ctx.fillStyle='#c9d1d9'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('VIX vs 策略盈亏 散点图', W/2, 16);
+  ctx.fillStyle='#8b949e'; ctx.font='10px sans-serif';
+  ctx.fillText('VIX (T-1收盘)', W/2, H-2);
+  ctx.save(); ctx.translate(12, H/2); ctx.rotate(-Math.PI/2); ctx.fillText('盈亏 ($)', 0, 0); ctx.restore();
+  // correlation
+  const n=pts.length, sx=pts.reduce((a,p)=>a+p.vix,0), sy=pts.reduce((a,p)=>a+p.pnl,0);
+  const mx=sx/n, my=sy/n;
+  const sxy=pts.reduce((a,p)=>a+(p.vix-mx)*(p.pnl-my),0);
+  const sxx=pts.reduce((a,p)=>a+(p.vix-mx)**2,0), syy=pts.reduce((a,p)=>a+(p.pnl-my)**2,0);
+  const r2 = sxx&&syy ? sxy/Math.sqrt(sxx*syy) : 0;
+  ctx.fillStyle=r2>=0?'#3fb950':'#f85149'; ctx.font='bold 11px sans-serif'; ctx.textAlign='right';
+  ctx.fillText('相关系数 r = '+(r2>=0?'+':'')+r2.toFixed(3), W-pad.r, 16);
+  // trend line
+  if (sxx) { const slope=sxy/sxx, intercept=my-slope*mx; const x1=minV,x2=maxV; ctx.setLineDash([6,3]);ctx.strokeStyle='rgba(88,166,255,0.5)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(toX(x1),toY(slope*x1+intercept));ctx.lineTo(toX(x2),toY(slope*x2+intercept));ctx.stroke();ctx.setLineDash([]); }
+}
+function drawVixBar() {
+  const canvas = document.getElementById('vixBarChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width) return;
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t:30, r:20, b:55, l:55};
+  const pts = _activeResults.filter(r => r['VIX'] != null);
+  if (!pts.length) return;
+  // 分段
+  const bins = [{label:'<15',lo:0,hi:15},{label:'15-20',lo:15,hi:20},{label:'20-25',lo:20,hi:25},{label:'25-30',lo:25,hi:30},{label:'≥30',lo:30,hi:999}];
+  const binData = bins.map(b => {
+    const items = pts.filter(r => r['VIX']>=b.lo && r['VIX']<b.hi);
+    const pnl = items.reduce((s,r)=>s+r['盈亏']*100,0);
+    const w = items.filter(r=>r['盈亏']>0).length;
+    return {label:b.label,count:items.length,pnl:+pnl.toFixed(2),wins:w,wr:items.length?+(w/items.length*100).toFixed(0):0};
+  }).filter(b=>b.count>0);
+  if (!binData.length) return;
+  const maxP = Math.max(...binData.map(b=>Math.abs(b.pnl)),1);
+  const n = binData.length;
+  const barW = Math.min(60, (W-pad.l-pad.r)/n*0.6);
+  const gap = (W-pad.l-pad.r)/n;
+  const toY = v => pad.t + (maxP-v)/(2*maxP)*(H-pad.t-pad.b);
+  // grid
+  const y0=toY(0); ctx.strokeStyle='#58a6ff';ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(pad.l,y0);ctx.lineTo(W-pad.r,y0);ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle='#21262d';ctx.lineWidth=0.5;ctx.fillStyle='#8b949e';ctx.font='10px sans-serif';ctx.textAlign='right';
+  for (let i=0;i<=4;i++){const v=-maxP+2*maxP*i/4,y=toY(v);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();ctx.fillText('$'+v.toFixed(0),pad.l-4,y+3);}
+  // bars
+  for (let i=0;i<n;i++){
+    const b=binData[i], x=pad.l+i*gap+gap/2-barW/2, y=toY(b.pnl);
+    ctx.fillStyle=b.pnl>=0?'rgba(63,185,80,0.7)':'rgba(248,81,73,0.7)';
+    if (b.pnl>=0){ctx.fillRect(x,y,barW,y0-y);}else{ctx.fillRect(x,y0,barW,y-y0);}
+    // label
+    ctx.fillStyle='#c9d1d9';ctx.font='bold 11px sans-serif';ctx.textAlign='center';
+    ctx.fillText('$'+b.pnl.toFixed(0), x+barW/2, b.pnl>=0?y-6:y+14);
+    // x label
+    ctx.fillStyle='#8b949e';ctx.font='10px sans-serif';
+    ctx.fillText(b.label, x+barW/2, H-pad.b+14);
+    ctx.fillText(b.count+'天', x+barW/2, H-pad.b+28);
+    ctx.fillStyle=b.wr>=50?'#3fb950':'#f85149';ctx.font='bold 10px sans-serif';
+    ctx.fillText(b.wr+'%胜率', x+barW/2, H-pad.b+42);
+  }
+  ctx.fillStyle='#c9d1d9';ctx.font='bold 12px sans-serif';ctx.textAlign='center';
+  ctx.fillText('VIX 分段累计盈亏',W/2,16);
+  ctx.fillStyle='#8b949e';ctx.font='10px sans-serif';
+  ctx.fillText('VIX 区间',W/2,H-2);
+}
+
+window.addEventListener('load', () => { drawCumChart(); drawVixDailyChart(); drawVixCharts(); });
 window.addEventListener('resize', () => {
   drawCumChart();
+  drawVixDailyChart();
+  drawVixCharts();
   if (currentIdx >= 0) {
     const c1 = document.getElementById('qqqCanvas');
     const c2 = document.getElementById('callCanvas');
@@ -1070,6 +1247,39 @@ def main():
     summary3, call3_1m, put3_1m, qqq_1m, qqq_2m, qqq_5m, qqq_daily = load_data(OPT_FILE_3)
     summary4, call4_1m, put4_1m, _,      _,      _,      _          = load_data(opt_file_4)
 
+    # 加载 VIX 数据（日K + 5min）
+    vix_map = {}  # date_str -> VIX收盘价
+    vix_daily_data = []  # for chart: [{t, o, h, l, c, v}, ...]
+    vix_5min_map = {}  # date_str -> [{t, o, h, l, c, v}, ...]
+    if os.path.exists(VIX_FILE):
+        vix_daily = pd.read_excel(VIX_FILE, sheet_name="VIX_日K")
+        for _, vr in vix_daily.iterrows():
+            d = str(vr["日期"])[:10]
+            vix_map[d] = float(vr["收盘价"])
+            vix_daily_data.append({
+                "t": d, "o": round(float(vr["开盘价"]), 2),
+                "h": round(float(vr["最高价"]), 2), "l": round(float(vr["最低价"]), 2),
+                "c": round(float(vr["收盘价"]), 2), "v": 0,
+            })
+        print(f"  VIX 日K 已加载，共 {len(vix_map)} 天")
+        try:
+            vix_5m = pd.read_excel(VIX_FILE, sheet_name="VIX_5min")
+            for _, vr in vix_5m.iterrows():
+                ts = str(vr["时间"])
+                d, t = ts[:10], ts[11:16]
+                if d not in vix_5min_map:
+                    vix_5min_map[d] = []
+                vix_5min_map[d].append({
+                    "t": t, "o": round(float(vr["开盘价"]), 2),
+                    "h": round(float(vr["最高价"]), 2), "l": round(float(vr["最低价"]), 2),
+                    "c": round(float(vr["收盘价"]), 2), "v": int(vr.get("成交量", 0)),
+                })
+            print(f"  VIX 5min 已加载，共 {len(vix_5min_map)} 天")
+        except Exception:
+            print("  ⚠ VIX 5min 数据加载失败")
+    else:
+        print(f"  ⚠ 未找到 VIX 数据文件: {VIX_FILE}")
+
     print("运行策略回测（±3）...")
     results3 = run_backtest(summary3, call3_1m, put3_1m, qqq_1m, qqq_2m, qqq_5m)
     print(f"  ±3 共 {len(results3)} 个交易日")
@@ -1082,12 +1292,27 @@ def main():
     for g, cnt in pd.Series([r['数据粒度'] for r in results4]).value_counts().items():
         print(f"    {g}: {cnt} 天")
 
+    # 注入 VIX 数据到回测结果
+    def _inject_vix(results):
+        for r in results:
+            r["VIX"] = vix_map.get(r["基准日"])  # 买入时VIX（T-1收盘）
+            sell_time = r["触发时间"].replace("止损", "")
+            vix_day = vix_5min_map.get(r["到期日"], [])
+            vix_sell = None
+            for bar in reversed(vix_day):
+                if bar["t"] <= sell_time:
+                    vix_sell = bar["c"]
+                    break
+            r["VIX_卖出"] = vix_sell
+    _inject_vix(results3)
+    _inject_vix(results4)
+
     print("构建日内图表数据...")
-    daily3 = build_daily_charts(results3, call3_1m, put3_1m, qqq_1m, qqq_2m, qqq_5m)
-    daily4 = build_daily_charts(results4, call4_1m, put4_1m, qqq_1m, qqq_2m, qqq_5m)
+    daily3 = build_daily_charts(results3, call3_1m, put3_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map)
+    daily4 = build_daily_charts(results4, call4_1m, put4_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map)
 
     print("生成 HTML...")
-    html = generate_html(results3, daily3, results4, daily4)
+    html = generate_html(results3, daily3, results4, daily4, vix_daily_data)
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"✅ 已生成：{os.path.abspath(OUTPUT_HTML)}")

@@ -19,16 +19,16 @@ import numpy as np
 # 配置
 # ────────────────────────────────────────────────
 QQQ_FILE    = os.path.join(os.path.dirname(__file__), "..", "1-qqq日K", "data", "qqq_market_data.xlsx")
-OPT_FILE_3  = os.path.join(os.path.dirname(__file__), "..", "2-qqq末日期权日K-上下3股价的期权合同-前一天末日期权的收盘价", "data", "qqq_0dte_options_offset3.xlsx")
-OPT_FILE_4  = os.path.join(os.path.dirname(__file__), "..", "3-qqq末日期权日K-上下4股价的期权合同-前一天末日期权的收盘价", "data", "qqq_0dte_options_offset4.xlsx")
+OPT_FILE_2  = os.path.join(os.path.dirname(__file__), "..", "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同", "data", "qqq_0dte_options_open_offset2.xlsx")
+OPT_FILE_3  = os.path.join(os.path.dirname(__file__), "..", "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同", "data", "qqq_0dte_options_open_offset3.xlsx")
 VIX_FILE    = os.path.join(os.path.dirname(__file__), "..", "..", "VIX", "data", "vix_data.xlsx")
 OUTPUT_HTML = os.path.join(os.path.dirname(__file__), "data", "qqq_call_open_strategy_report.html")
 
-UPPER_TRIGGER_PCT = 2.0
-LOWER_TRIGGER_PCT = 0.5
+UPPER_TRIGGER_PCT = 1.5
+LOWER_TRIGGER_PCT = 1.25
 COMMISSION   = 1.7   # 每张合约手续费（美元），买入+卖出=2次
 MONITOR_START = "09:30"
-MONITOR_END   = "10:30"
+MONITOR_END   = "13:00"
 
 os.makedirs(os.path.join(os.path.dirname(__file__), "data"), exist_ok=True)
 
@@ -167,8 +167,8 @@ def build_daily_charts(results, call_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map=No
     return daily_data
 
 
-def generate_html(results3, daily3, results4, daily4, vix_daily_data=None):
-    results = results3
+def generate_html(results2, daily2, results3, daily3, vix_daily_data=None):
+    results = results2
     total_trades = len(results)
     wins = sum(1 for r in results if r["盈亏"] > 0)
     losses = total_trades - wins
@@ -252,7 +252,7 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
 <body>
 <div class="header">
   <h1>QQQ 末日期权 — 开盘买入看涨（Call Only）回测分析</h1>
-  <div class="sub">0DTE 开盘买 Call 策略 &nbsp;·&nbsp; 数据范围：{results3[0]["到期日"]} ~ {results3[-1]["到期日"]} &nbsp;·&nbsp; 共 {total_trades} 个交易日</div>
+  <div class="sub">0DTE 开盘买 Call 策略 &nbsp;·&nbsp; 数据范围：{results2[0]["到期日"]} ~ {results2[-1]["到期日"]} &nbsp;·&nbsp; 共 {total_trades} 个交易日</div>
   <div class="sub-detail">
     <div class="item"><span class="tag green">开盘建仓</span>T（到期日）9:30 以 Call 期权开盘价买入 1 张 Call（行权价 = round(T-1收盘 + N)）</div>
     <div class="item"><span class="tag blue">触发卖出</span>9:30 起监控 QQQ 相对开盘价涨幅 ≥ +阈值% 或跌幅 ≥ −阈值%，立即卖出 Call</div>
@@ -262,8 +262,8 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
 </div>
 <div class="ctrl-bar">
   <div class="strike-switch">
-    <button id="btn-strike3" class="active" onclick="switchStrike(3)">+3 行权价</button>
-    <button id="btn-strike4" onclick="switchStrike(4)">+4 行权价</button>
+    <button id="btn-strike2" class="active" onclick="switchStrike(2)">+2 行权价</button>
+    <button id="btn-strike3" onclick="switchStrike(3)">+3 行权价</button>
   </div>
   <label>上涨触发</label>
   <span style="color:#3fb950;font-weight:bold">+</span>
@@ -358,19 +358,19 @@ tr.data-row.selected td {{ background: #1e3a5f !important; }}
 
 <script>
 """
+    html += f"const RESULTS_2  = {json.dumps(results2, ensure_ascii=False)};\n"
+    html += f"const DAILY_2    = {json.dumps(daily2, ensure_ascii=False)};\n"
     html += f"const RESULTS_3  = {json.dumps(results3, ensure_ascii=False)};\n"
     html += f"const DAILY_3    = {json.dumps(daily3, ensure_ascii=False)};\n"
-    html += f"const RESULTS_4  = {json.dumps(results4, ensure_ascii=False)};\n"
-    html += f"const DAILY_4    = {json.dumps(daily4, ensure_ascii=False)};\n"
-    cum3, cum4 = [], []
+    cum2, cum3 = [], []
+    s = 0
+    for r in results2:
+        s += r['盈亏']; cum2.append(round(s, 4))
     s = 0
     for r in results3:
         s += r['盈亏']; cum3.append(round(s, 4))
-    s = 0
-    for r in results4:
-        s += r['盈亏']; cum4.append(round(s, 4))
+    html += f"const CUM_PNL_2  = {json.dumps(cum2)};\n"
     html += f"const CUM_PNL_3  = {json.dumps(cum3)};\n"
-    html += f"const CUM_PNL_4  = {json.dumps(cum4)};\n"
     html += f"const VIX_DAILY_DATA = {json.dumps(vix_daily_data or [], ensure_ascii=False)};\n"
     html += f"const UPPER_TRIGGER_PCT = {UPPER_TRIGGER_PCT};\n"
     html += f"const LOWER_TRIGGER_PCT = {LOWER_TRIGGER_PCT};\n"
@@ -384,18 +384,18 @@ let _upperPct = UPPER_TRIGGER_PCT;
 let _lowerPct = LOWER_TRIGGER_PCT;
 let _commission = COMMISSION;
 let _monitorEnd = MONITOR_END;
-let _strike = 3;
-let _baseResults = RESULTS_3.slice();
-let _baseDaily = DAILY_3;
-let _activeResults = RESULTS_3.slice();
-let _activeCumPnl = CUM_PNL_3.slice();
+let _strike = 2;
+let _baseResults = RESULTS_2.slice();
+let _baseDaily = DAILY_2;
+let _activeResults = RESULTS_2.slice();
+let _activeCumPnl = CUM_PNL_2.slice();
 
 function switchStrike(n) {
   _strike = n;
-  _baseResults = n === 3 ? RESULTS_3.slice() : RESULTS_4.slice();
-  _baseDaily = n === 3 ? DAILY_3 : DAILY_4;
+  _baseResults = n === 2 ? RESULTS_2.slice() : RESULTS_3.slice();
+  _baseDaily = n === 2 ? DAILY_2 : DAILY_3;
+  document.getElementById('btn-strike2').classList.toggle('active', n === 2);
   document.getElementById('btn-strike3').classList.toggle('active', n === 3);
-  document.getElementById('btn-strike4').classList.toggle('active', n === 4);
   if (currentIdx >= 0) {
     const old = document.getElementById('detailRow');
     if (old) old.remove();
@@ -842,16 +842,9 @@ window.addEventListener('resize', () => {
 
 
 def main():
-    opt_file_4 = OPT_FILE_4
-    if not os.path.exists(opt_file_4):
-        old = os.path.join(os.path.dirname(__file__), "..", "3-qqq末日期权日K-上下4股价的期权合同-前一天末日期权的收盘价", "data", "QQQ_0DTE_4.xlsx")
-        if os.path.exists(old):
-            print("提示：检测到旧命名 QQQ_0DTE_4.xlsx，临时使用旧文件。")
-            opt_file_4 = old
-
     print("加载数据...")
-    summary3, call3_1m, qqq_1m, qqq_2m, qqq_5m = load_data(OPT_FILE_3)
-    summary4, call4_1m, _, _, _ = load_data(opt_file_4)
+    summary2, call2_1m, qqq_1m, qqq_2m, qqq_5m = load_data(OPT_FILE_2)
+    summary3, call3_1m, _, _, _ = load_data(OPT_FILE_3)
 
     # VIX
     vix_map = {}
@@ -880,16 +873,16 @@ def main():
     else:
         print(f"  ⚠ 未找到 VIX 数据文件: {VIX_FILE}")
 
+    print("运行策略回测（+2 Call）...")
+    results2 = run_backtest(summary2, call2_1m, qqq_1m, qqq_2m, qqq_5m)
+    print(f"  +2 共 {len(results2)} 个交易日")
+    for g, cnt in pd.Series([r['数据粒度'] for r in results2]).value_counts().items():
+        print(f"    {g}: {cnt} 天")
+
     print("运行策略回测（+3 Call）...")
     results3 = run_backtest(summary3, call3_1m, qqq_1m, qqq_2m, qqq_5m)
     print(f"  +3 共 {len(results3)} 个交易日")
     for g, cnt in pd.Series([r['数据粒度'] for r in results3]).value_counts().items():
-        print(f"    {g}: {cnt} 天")
-
-    print("运行策略回测（+4 Call）...")
-    results4 = run_backtest(summary4, call4_1m, qqq_1m, qqq_2m, qqq_5m)
-    print(f"  +4 共 {len(results4)} 个交易日")
-    for g, cnt in pd.Series([r['数据粒度'] for r in results4]).value_counts().items():
         print(f"    {g}: {cnt} 天")
 
     # 注入 VIX
@@ -904,27 +897,27 @@ def main():
                     vix_sell = bar["c"]
                     break
             r["VIX_卖出"] = vix_sell
+    _inject_vix(results2)
     _inject_vix(results3)
-    _inject_vix(results4)
 
     print("构建日内图表数据...")
+    daily2 = build_daily_charts(results2, call2_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map)
     daily3 = build_daily_charts(results3, call3_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map)
-    daily4 = build_daily_charts(results4, call4_1m, qqq_1m, qqq_2m, qqq_5m, vix_5min_map)
 
     print("生成 HTML...")
-    html = generate_html(results3, daily3, results4, daily4, vix_daily_data)
+    html = generate_html(results2, daily2, results3, daily3, vix_daily_data)
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"✅ 已生成：{os.path.abspath(OUTPUT_HTML)}")
 
+    total_pnl2 = sum(r["盈亏"] for r in results2)
     total_pnl3 = sum(r["盈亏"] for r in results3)
-    total_pnl4 = sum(r["盈亏"] for r in results4)
+    wins2 = sum(1 for r in results2 if r["盈亏"] > 0)
     wins3 = sum(1 for r in results3 if r["盈亏"] > 0)
-    wins4 = sum(1 for r in results4 if r["盈亏"] > 0)
-    print(f"\n── +3 Call 策略汇总 ──")
+    print(f"\n── +2 Call 策略汇总 ──")
+    print(f"  胜/负: {wins2}/{len(results2)-wins2}  胜率: {round(wins2/len(results2)*100,1)}%  累计盈亏: ${round(total_pnl2*100,2)}")
+    print(f"── +3 Call 策略汇总 ──")
     print(f"  胜/负: {wins3}/{len(results3)-wins3}  胜率: {round(wins3/len(results3)*100,1)}%  累计盈亏: ${round(total_pnl3*100,2)}")
-    print(f"── +4 Call 策略汇总 ──")
-    print(f"  胜/负: {wins4}/{len(results4)-wins4}  胜率: {round(wins4/len(results4)*100,1)}%  累计盈亏: ${round(total_pnl4*100,2)}")
 
 
 if __name__ == "__main__":

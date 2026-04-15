@@ -2,10 +2,10 @@
 """
 QQQ 一键任务入口脚本。
 
-默认行为：只更新数据（市场数据 + ±3期权 + ±4期权）。
+默认行为：只更新数据（市场数据 + ±3期权 + ±4期权 + 开盘±2期权 + 开盘±3期权）。
 可选参数：
-  --with-reports   更新数据后，额外生成图表与策略报告
-  --with-optimize  更新数据后，额外执行参数优化（耗时较长）
+  --with-reports   更新数据后，额外生成图表与策略报告（文件夹1/2/10/11/12）
+  --with-optimize  更新数据后，额外执行参数优化（文件夹2/10/11/12，耗时较长）
 
 用法示例：
   python run_qqq_pipeline.py
@@ -89,6 +89,22 @@ def build_steps(with_reports: bool, with_optimize: bool) -> list[Step]:
             ),
             script="update_qqq_0dte_options_offset4.py",
         ),
+        Step(
+            name="更新 0DTE 开盘期权数据（±2）",
+            cwd=os.path.join(
+                ROOT_DIR,
+                "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同",
+            ),
+            script="update_qqq_0dte_options_open_offset2.py",
+        ),
+        Step(
+            name="更新 0DTE 开盘期权数据（±3）",
+            cwd=os.path.join(
+                ROOT_DIR,
+                "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同",
+            ),
+            script="update_qqq_0dte_options_open_offset3.py",
+        ),
     ]
 
     if with_reports:
@@ -107,19 +123,61 @@ def build_steps(with_reports: bool, with_optimize: bool) -> list[Step]:
                     ),
                     script="build_qqq_0dte_strategy_report.py",
                 ),
+                Step(
+                    name="生成开盘买 Call 策略报告（文件夹10）",
+                    cwd=os.path.join(ROOT_DIR, "10-qqq末日期权开盘立即买入看涨合同"),
+                    script="build_call_open_strategy.py",
+                ),
+                Step(
+                    name="生成前日收盘买 Call 策略报告（文件夹11）",
+                    cwd=os.path.join(ROOT_DIR, "11-qqq末日期权前一天收盘价买入看涨合同"),
+                    script="build_call_t1close_strategy.py",
+                ),
+                Step(
+                    name="生成前日收盘买 Put 策略报告（文件夹12）",
+                    cwd=os.path.join(ROOT_DIR, "12-qqq末日期权前一天收盘价买入看跌合同"),
+                    script="build_put_t1close_strategy.py",
+                ),
+                Step(
+                    name="生成开盘双买策略报告（文件夹10-1）",
+                    cwd=os.path.join(ROOT_DIR, "10-1-qqq末日期权开盘立即买入看涨看跌双买合同"),
+                    script="build_straddle_open_strategy.py",
+                ),
             ]
         )
 
     if with_optimize:
-        steps.append(
-            Step(
-                name="执行 0DTE 参数优化",
-                cwd=os.path.join(
-                    ROOT_DIR,
-                    "2-qqq末日期权日K-上下3股价的期权合同-前一天末日期权的收盘价",
+        steps.extend(
+            [
+                Step(
+                    name="执行 0DTE 参数优化",
+                    cwd=os.path.join(
+                        ROOT_DIR,
+                        "2-qqq末日期权日K-上下3股价的期权合同-前一天末日期权的收盘价",
+                    ),
+                    script="optimize_qqq_0dte_params.py",
                 ),
-                script="optimize_qqq_0dte_params.py",
-            )
+                Step(
+                    name="执行开盘买 Call 参数优化（文件夹10）",
+                    cwd=os.path.join(ROOT_DIR, "10-qqq末日期权开盘立即买入看涨合同"),
+                    script="optimize_call_open_params.py",
+                ),
+                Step(
+                    name="执行前日收盘买 Call 参数优化（文件夹11）",
+                    cwd=os.path.join(ROOT_DIR, "11-qqq末日期权前一天收盘价买入看涨合同"),
+                    script="optimize_call_t1close_params.py",
+                ),
+                Step(
+                    name="执行前日收盘买 Put 参数优化（文件夹12）",
+                    cwd=os.path.join(ROOT_DIR, "12-qqq末日期权前一天收盘价买入看跌合同"),
+                    script="optimize_put_t1close_params.py",
+                ),
+                Step(
+                    name="执行开盘双买参数优化（文件夹10-1）",
+                    cwd=os.path.join(ROOT_DIR, "10-1-qqq末日期权开盘立即买入看涨看跌双买合同"),
+                    script="optimize_straddle_open_params.py",
+                ),
+            ]
         )
 
     return steps

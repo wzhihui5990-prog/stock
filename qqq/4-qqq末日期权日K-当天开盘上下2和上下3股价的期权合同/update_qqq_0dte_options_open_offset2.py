@@ -16,7 +16,7 @@ SYMBOL        = "QQQ"
 STRIKE_OFFSET = 2
 RATE_LIMIT    = 3
 START_DATE    = date(2026, 2, 13)
-END_DATE      = date(2026, 2, 17) #None
+END_DATE      = None
 OUTPUT_DIR    = "data"
 OUTPUT_FILE   = os.path.join(OUTPUT_DIR, "qqq_0dte_options_open_offset2.xlsx")
 

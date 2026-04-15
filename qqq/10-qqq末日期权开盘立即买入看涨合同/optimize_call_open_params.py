@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 参数扫描：开盘买 Call 策略
-枚举 upper_pct / lower_pct / close_time 三轴，分别对 +3 / +4 数据做回测
+枚举 upper_pct / lower_pct / close_time 三轴，分别对 +2 / +3 数据做回测
 策略：T 日 9:30 以 Call 开盘价买入 1 张 Call，监控 QQQ 涨跌触发卖出
 输出：累计盈亏最高的 Top 20 组合
 """
@@ -11,8 +11,8 @@ import pandas as pd
 
 # ────────────────────────────────────────────────
 QQQ_FILE   = os.path.join(os.path.dirname(__file__), "..", "1-qqq日K", "data", "qqq_market_data.xlsx")
-OPT_FILE_3 = os.path.join(os.path.dirname(__file__), "..", "2-qqq末日期权日K-上下3股价的期权合同-前一天末日期权的收盘价", "data", "qqq_0dte_options_offset3.xlsx")
-OPT_FILE_4 = os.path.join(os.path.dirname(__file__), "..", "3-qqq末日期权日K-上下4股价的期权合同-前一天末日期权的收盘价", "data", "qqq_0dte_options_offset4.xlsx")
+OPT_FILE_2 = os.path.join(os.path.dirname(__file__), "..", "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同", "data", "qqq_0dte_options_open_offset2.xlsx")
+OPT_FILE_3 = os.path.join(os.path.dirname(__file__), "..", "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同", "data", "qqq_0dte_options_open_offset3.xlsx")
 COMMISSION = 1.7
 MONITOR_START = "09:30"
 # ────────────────────────────────────────────────
@@ -22,7 +22,7 @@ UPPER_PCTS   = [round(x * 0.25, 2) for x in range(2, 21)]   # 0.5 ~ 5.0，步长
 LOWER_PCTS   = [round(x * 0.25, 2) for x in range(2, 21)]
 CLOSE_TIMES  = ["10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
                 "13:00", "13:30", "14:00", "14:30", "15:00"]
-STRIKE_FILES = [("+3", OPT_FILE_3), ("+4", OPT_FILE_4)]
+STRIKE_FILES = [("+2", OPT_FILE_2), ("+3", OPT_FILE_3)]
 
 TOP_N = 20
 
@@ -143,16 +143,7 @@ def main():
 
     results_all = []
 
-    old_opt_file_4 = os.path.join(os.path.dirname(__file__), "..", "3-qqq末日期权日K-上下4股价的期权合同-前一天末日期权的收盘价", "data", "QQQ_0DTE_4.xlsx")
-    strike_files = []
     for label, opt_file in STRIKE_FILES:
-        if label == "+4" and (not os.path.exists(opt_file)) and os.path.exists(old_opt_file_4):
-            print("提示：检测到旧命名 QQQ_0DTE_4.xlsx，临时使用旧文件。")
-            strike_files.append((label, old_opt_file_4))
-        else:
-            strike_files.append((label, opt_file))
-
-    for label, opt_file in strike_files:
         print(f"加载 {label} 数据...")
         summary, call_1m, qqq_1m, qqq_2m, qqq_5m = load_data(opt_file)
         records = build_daily_records(summary, call_1m, qqq_1m, qqq_2m, qqq_5m)
@@ -192,10 +183,10 @@ def main():
     print(top.to_string())
 
     print(f"\n{'='*70}")
-    print("  [+3 专项 Top 10]")
+    print(f"\n  [+2 专项 Top 10]")
+    print(df_sorted[df_sorted["行权价"] == "+2"].head(10).reset_index(drop=True).to_string())
+    print(f"\n  [+3 专项 Top 10]")
     print(df_sorted[df_sorted["行权价"] == "+3"].head(10).reset_index(drop=True).to_string())
-    print(f"\n  [+4 专项 Top 10]")
-    print(df_sorted[df_sorted["行权价"] == "+4"].head(10).reset_index(drop=True).to_string())
 
     # 保存完整结果
     out = os.path.join(os.path.dirname(__file__), "data", "call_open_param_optimization.csv")

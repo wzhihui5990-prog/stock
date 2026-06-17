@@ -105,6 +105,30 @@ def build_steps(with_reports: bool, with_optimize: bool) -> list[Step]:
             ),
             script="update_qqq_0dte_options_open_offset3.py",
         ),
+        Step(
+            name="更新 0DTE 开盘期权数据（±1）",
+            cwd=os.path.join(
+                ROOT_DIR,
+                "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同",
+            ),
+            script="update_qqq_0dte_options_open_offset1.py",
+        ),
+        Step(
+            name="更新 0DTE 开盘期权数据（±4）",
+            cwd=os.path.join(
+                ROOT_DIR,
+                "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同",
+            ),
+            script="update_qqq_0dte_options_open_offset4.py",
+        ),
+        Step(
+            name="更新 0DTE 开盘期权数据（±5）",
+            cwd=os.path.join(
+                ROOT_DIR,
+                "4-qqq末日期权日K-当天开盘上下2和上下3股价的期权合同",
+            ),
+            script="update_qqq_0dte_options_open_offset5.py",
+        ),
     ]
 
     if with_reports:
@@ -143,6 +167,11 @@ def build_steps(with_reports: bool, with_optimize: bool) -> list[Step]:
                     cwd=os.path.join(ROOT_DIR, "10-1-qqq末日期权开盘立即买入看涨看跌双买合同"),
                     script="build_straddle_open_strategy.py",
                 ),
+                Step(
+                    name="生成开盘垂直看涨价差策略报告（文件夹13）",
+                    cwd=os.path.join(ROOT_DIR, "13-qqq末日期权开盘立即买入看涨合同垂直策略"),
+                    script="build_vertical_call_strategy.py",
+                ),
             ]
         )
 
@@ -176,6 +205,11 @@ def build_steps(with_reports: bool, with_optimize: bool) -> list[Step]:
                     name="执行开盘双买参数优化（文件夹10-1）",
                     cwd=os.path.join(ROOT_DIR, "10-1-qqq末日期权开盘立即买入看涨看跌双买合同"),
                     script="optimize_straddle_open_params.py",
+                ),
+                Step(
+                    name="执行开盘垂直看涨价差参数优化（文件夹13）",
+                    cwd=os.path.join(ROOT_DIR, "13-qqq末日期权开盘立即买入看涨合同垂直策略"),
+                    script="optimize_vertical_call_params.py",
                 ),
             ]
         )

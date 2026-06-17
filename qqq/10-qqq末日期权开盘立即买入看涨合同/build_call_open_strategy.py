@@ -24,11 +24,11 @@ OPT_FILE_3  = os.path.join(os.path.dirname(__file__), "..", "4-qqq末日期权�
 VIX_FILE    = os.path.join(os.path.dirname(__file__), "..", "..", "VIX", "data", "vix_data.xlsx")
 OUTPUT_HTML = os.path.join(os.path.dirname(__file__), "data", "qqq_call_open_strategy_report.html")
 
-UPPER_TRIGGER_PCT = 1.5
+UPPER_TRIGGER_PCT = 1.75
 LOWER_TRIGGER_PCT = 1.25
 COMMISSION   = 1.7   # 每张合约手续费（美元），买入+卖出=2次
 MONITOR_START = "09:30"
-MONITOR_END   = "13:00"
+MONITOR_END   = "14:00"
 
 os.makedirs(os.path.join(os.path.dirname(__file__), "data"), exist_ok=True)
 

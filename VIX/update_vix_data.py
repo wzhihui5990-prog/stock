@@ -8,9 +8,19 @@ VIX 恐慌指数数据拉取脚本（增量追加模式）
 """
 
 import os
+import sys
+import time
+import argparse
+import requests
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# GBK 控制台不能输出 ⚠ 等符号，统一转义避免 UnicodeEncodeError
+try:
+    sys.stdout.reconfigure(errors="replace")
+except Exception:
+    pass
 
 # ────────────────────────────────────────────────
 # 配置
@@ -24,22 +34,82 @@ START_DATE = datetime(2026, 2, 13)   # 与 QQQ 数据同步起始日
 
 CHUNK_DAYS = 7
 
+# 直连 Yahoo chart API（yfinance 被限流时的备用通道）
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+REQUEST_INTERVAL = 0.5   # 每个请求之间的间隔（秒），降低被限流概率
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # ────────────────────────────────────────────────
 # 下载
 # ────────────────────────────────────────────────
+def _fetch_direct(interval, start, end):
+    """直接调用 Yahoo chart API，返回与 yfinance 一致的 DataFrame 结构。"""
+    try:
+        params = {
+            "period1":  int(start.replace(tzinfo=timezone.utc).timestamp()),
+            "period2":  int((end + timedelta(days=1)).replace(tzinfo=timezone.utc).timestamp()),
+            "interval": interval,
+            "includePrePost": "true",
+            "events":   "div,splits",
+        }
+        resp = requests.get(
+            YAHOO_CHART_URL.format(symbol=SYMBOL),
+            params=params,
+            headers=HTTP_HEADERS,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        result = (resp.json().get("chart") or {}).get("result")
+        if not result:
+            return pd.DataFrame()
+        ts = result[0].get("timestamp") or []
+        if not ts:
+            return pd.DataFrame()
+        quote = result[0]["indicators"]["quote"][0]
+        df = pd.DataFrame(
+            {
+                "Open":   quote.get("open"),
+                "High":   quote.get("high"),
+                "Low":    quote.get("low"),
+                "Close":  quote.get("close"),
+                "Volume": quote.get("volume"),
+            },
+            index=pd.to_datetime(ts, unit="s", utc=True),
+        )
+        df.index.name = "Datetime"
+        return df.dropna(how="all")
+    except Exception as e:
+        print(f"  ⚠  直连 API [{interval}] 获取失败：{e}")
+        return pd.DataFrame()
+
+
+_USE_YFINANCE = True   # 首次被限流后，本次运行余下请求全部走直连通道
+
+
 def _fetch_one(interval, start, end):
-    df = yf.download(
-        SYMBOL,
-        start=start.strftime("%Y-%m-%d"),
-        end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
-        interval=interval,
-        auto_adjust=True,
-        progress=False,
-    )
-    return df
+    global _USE_YFINANCE
+    if _USE_YFINANCE:
+        df = yf.download(
+            SYMBOL,
+            start=start.strftime("%Y-%m-%d"),
+            end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
+        )
+        if df is not None and not df.empty:
+            return df
+        print(f"  ⚠  yfinance [{interval}] 无数据（可能被限流），改用直连 API")
+        _USE_YFINANCE = False
+    return _fetch_direct(interval, start, end)
 
 
 def download_chunked(interval, start, end, chunk_days):
@@ -51,6 +121,7 @@ def download_chunked(interval, start, end, chunk_days):
         df = _fetch_one(interval, cur, seg_end)
         if not df.empty:
             frames.append(df)
+        time.sleep(REQUEST_INTERVAL)
         cur = seg_end + timedelta(days=1)
     if not frames:
         print(f"  ⚠  VIX [{interval}] 无数据返回")
@@ -159,17 +230,25 @@ def write_excel(sheets):
 # 主流程
 # ────────────────────────────────────────────────
 def main():
+    ap = argparse.ArgumentParser(description="VIX 数据拉取（默认增量追加）")
+    ap.add_argument("--from", dest="from_date", default="", metavar="YYYY-MM-DD",
+                    help="从该日期重新拉取并与现有数据合并（用来补中间的缺口）")
+    args = ap.parse_args()
+    force_from = (datetime.strptime(args.from_date, "%Y-%m-%d") if args.from_date else None)
+
     all_sheets = {}
     old_counts = {}
 
     print("=== VIX 恐慌指数 ===")
+    if force_from:
+        print(f"  ⚠ 强制从 {force_from.date()} 重新拉取并合并（补缺口模式）")
 
     # ── 1. 日 K 线 ──
     sheet_day = "VIX_日K"
     old_day = read_existing(sheet_day)
     old_counts[sheet_day] = len(old_day)
     last_day = get_last_date(old_day, "日期")
-    start_day = (last_day + timedelta(days=1)) if last_day else START_DATE
+    start_day = force_from or ((last_day + timedelta(days=1)) if last_day else START_DATE)
     if start_day.date() > END_DATE.date():
         print("  日K 已是最新，无需更新")
         new_day = pd.DataFrame()
@@ -184,7 +263,7 @@ def main():
     old_5m = read_existing(sheet_5m)
     old_counts[sheet_5m] = len(old_5m)
     last_5m = get_last_date(old_5m, "时间")
-    start_5m = (last_5m + timedelta(days=1)) if last_5m else START_DATE
+    start_5m = force_from or ((last_5m + timedelta(days=1)) if last_5m else START_DATE)
     if start_5m.date() > END_DATE.date():
         print("  5min 已是最新，无需更新")
         new_5m = pd.DataFrame()

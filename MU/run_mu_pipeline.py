@@ -12,8 +12,8 @@ MU（美光科技）一键任务入口脚本。
 
 注意：期权拉取受 Polygon 免费档 5 次/分钟限速，全量约需 1 小时；
       脚本每 10 个到期日落盘一次，中断后可重复执行自动续拉。
-      VIX 一步当前常拿不到数据（Yahoo 封直连 403 + 限流），但不会失败、
-      也不会破坏已有 vix_data.xlsx，可安全保留在流水线里。
+      VIX 一步走 Yahoo（需 Cookie+crumb）+ CBOE 日K备用源；
+      偶发的 ConnectionReset 属网络抖动，重跑即可，不会破坏已有数据。
 """
 
 from __future__ import annotations

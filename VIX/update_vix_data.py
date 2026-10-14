@@ -35,7 +35,16 @@ START_DATE = datetime(2026, 2, 13)   # 与 QQQ 数据同步起始日
 CHUNK_DAYS = 7
 
 # 直连 Yahoo chart API（yfinance 被限流时的备用通道）
+# ⚠ 2026-10 起 Yahoo 要求【带 Cookie + crumb】才能访问 chart API，
+#    否则一律 403 Forbidden（这就是之前「VIX 拿不到数据」的原因）。
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+YAHOO_CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
+YAHOO_COOKIE_URL = "https://finance.yahoo.com/quote/%5EVIX"
+
+# CBOE 官方日 K 历史 CSV（1990 年至今），Yahoo 挂掉时的备用源，
+# 只提供日 K，没有 5 分钟。
+CBOE_DAILY_CSV = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
+
 HTTP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -43,6 +52,30 @@ HTTP_HEADERS = {
     )
 }
 REQUEST_INTERVAL = 0.5   # 每个请求之间的间隔（秒），降低被限流概率
+
+_YAHOO = None            # (requests.Session, crumb) 缓存
+
+
+def yahoo_session():
+    """取得带 Cookie + crumb 的 Yahoo 会话（只建一次）。"""
+    global _YAHOO
+    if _YAHOO is not None:
+        return _YAHOO
+    s = requests.Session()
+    s.headers.update(HTTP_HEADERS)
+    crumb = ""
+    try:
+        s.get(YAHOO_COOKIE_URL, timeout=20)          # 拿 A1/A3 cookie
+        r = s.get(YAHOO_CRUMB_URL, timeout=20)
+        crumb = (r.text or "").strip()
+        if crumb:
+            print(f"  ·  Yahoo 会话就绪（crumb={crumb[:8]}…）")
+        else:
+            print("  ⚠  Yahoo crumb 为空，chart API 可能仍返回 403")
+    except Exception as e:
+        print(f"  ⚠  Yahoo 会话建立失败：{e}")
+    _YAHOO = (s, crumb)
+    return _YAHOO
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -53,6 +86,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 def _fetch_direct(interval, start, end):
     """直接调用 Yahoo chart API，返回与 yfinance 一致的 DataFrame 结构。"""
     try:
+        s, crumb = yahoo_session()
         params = {
             "period1":  int(start.replace(tzinfo=timezone.utc).timestamp()),
             "period2":  int((end + timedelta(days=1)).replace(tzinfo=timezone.utc).timestamp()),
@@ -60,7 +94,9 @@ def _fetch_direct(interval, start, end):
             "includePrePost": "true",
             "events":   "div,splits",
         }
-        resp = requests.get(
+        if crumb:
+            params["crumb"] = crumb
+        resp = s.get(
             YAHOO_CHART_URL.format(symbol=SYMBOL),
             params=params,
             headers=HTTP_HEADERS,
@@ -88,6 +124,25 @@ def _fetch_direct(interval, start, end):
         return df.dropna(how="all")
     except Exception as e:
         print(f"  ⚠  直连 API [{interval}] 获取失败：{e}")
+        return pd.DataFrame()
+
+
+def _fetch_cboe_daily():
+    """CBOE 官方日 K CSV（只日K，无 5 分钟）。Yahoo 完全挂掉时的备用。"""
+    try:
+        r = requests.get(CBOE_DAILY_CSV, headers=HTTP_HEADERS, timeout=30)
+        r.raise_for_status()
+        from io import StringIO
+        d = pd.read_csv(StringIO(r.text))
+        d["DATE"] = pd.to_datetime(d["DATE"], format="%m/%d/%Y")
+        d = d.rename(columns={"DATE": "Datetime", "OPEN": "Open", "HIGH": "High",
+                              "LOW": "Low", "CLOSE": "Close"})
+        d["Volume"] = None
+        d = d.set_index("Datetime")[ ["Open", "High", "Low", "Close", "Volume"] ]
+        print(f"  \u2714  CBOE 日K 备用源取到 {len(d)} 条（最新 {d.index[-1].date()}）")
+        return d
+    except Exception as e:
+        print(f"  \u26a0  CBOE 日K 备用源失败：{e}")
         return pd.DataFrame()
 
 
@@ -205,7 +260,10 @@ def merge_df(old, new, time_col):
     if new.empty:
         return old
     combined = pd.concat([old, new], ignore_index=True)
-    combined = combined.drop_duplicates(subset=[time_col]).sort_values(time_col).reset_index(drop=True)
+    # keep="last"：重拉/补缺口时让【新数据覆盖旧数据】。
+    # 否则今天那根还没收盘的日K（以及盘中最后一根5min柱）会一直卡在表里不被修正。
+    combined = (combined.drop_duplicates(subset=[time_col], keep="last")
+                        .sort_values(time_col).reset_index(drop=True))
     return combined
 
 
@@ -256,6 +314,10 @@ def main():
         print(f"  增量范围 [{start_day.date()} ~ {END_DATE.date()}]")
         raw = _fetch_one("1d", start_day, END_DATE)
         new_day = format_df(raw, date_only=True)
+        if new_day.empty:
+            print("  \u26a0  Yahoo 日K 无数据 → 改用 CBOE 官方 CSV 日K 备用源")
+            raw = _fetch_cboe_daily()
+            new_day = format_df(raw, date_only=True)
     all_sheets[sheet_day] = merge_df(old_day, new_day, "日期")
 
     # ── 2. 5分钟 K 线 ──
@@ -290,6 +352,9 @@ def main():
             print(f"  ─  {name:<20} 无新数据       (共 {new_total} 条)")
     if not any_updated:
         print("  所有数据均已是最新，无新增。")
+        print("  \u26a0  若本来应该有新数据，说明这一次一个源都没拉到："
+              "日K 会依次试 Yahoo → CBOE CSV，5分钟只有 Yahoo。")
+        print("     请检查网络/代理，或稍后重跑（Yahoo 限流一般几分钟后恢复）。")
 
 
 if __name__ == "__main__":
